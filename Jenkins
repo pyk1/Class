@@ -1,0 +1,435 @@
+:Step by step configuration for jenkins:
+
+
+sudo wget -O /etc/yum.repos.d/jenkins.repo \
+    https://pkg.jenkins.io/redhat-stable/jenkins.repo
+
+sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+
+sudo yum upgrade
+
+sudo yum install -y java-1.8.0-openjdk
+
+sudo yum install jenkins
+
+sudo systemctl daemon-reload
+
+sudo systemctl enable jenkins
+
+sudo systemctl start jenkins
+
+sudo systemctl status jenkins
+
+your_public_ip:8080
+
+##Exception case##
+YOURPORT=8080
+PERM="--permanent"
+SERV="$PERM --service=jenkins"
+-----------
+-----------
+switch to ec2-user in both slave and master
+--
+in master
+ssh-keygen -t rsa (hit enter only no need to give anything)
+We will have 2 keys one private and public key generated in MASTER
+-
+copy public key from MASTER and paste it in SLAVE
+cat 
+cat ~/.ssh/id_rsa.pub (copy the key)
+
+in SLAVE login as ec2-user
+sudo vi .ssh/authorized_keys (paste the copied key here)
+
+
+from MASTER
+ssh ec2-user@private_ip_slave (it has to connect without asking password)
+--
+once connected modify some settings in SLAVE /etc/ssh/ssh_config as below
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+--
+in SLAVE:: login as ec2-user,
+create /tmp/jenkins and change permissions to 777
+sudo mkdir /tmp/jenkins
+sudo chmod 777 /tmp/jenkins
+-
+in MASTER
+copy the .ssh/known_hosts file to /var/lib/jenkins
+sudo mkdir /var/lib/jenkins/.ssh
+sudo cp -r ~/.ssh/known_hosts /var/lib/jenkins/.ssh
+_____
+Configure Jenkins system,tools, node
+--
+in node configuration we can give working directory as /tmp/jenkins and save environment variables as JAVA_HOME and Maven as well
+----
+
+Jenkins Job Where What When:
+s
+ Where: provide the node or lable information (General)
+ What: give the detail of job/script/ (Build)
+ When: at what time it has to trigger (
+
+when to Run: build Triggers 
+Day Hour DayofMonth MonthofYear DayofWeek
+
+---
+maven installation in SLAVE machine:
+---
+yum install java-1.8.0-openjdk
+cd /usr/local
+wget https://archive.apache.org/dist/maven/maven-3//binaries/apache-maven-3.5.3-bin.tar.gz
+tar xzf apache-maven-3.5.3 maven
+ln -s apache-maven-3.5.3 maven
+export M2_HOME=/usr/local/maven
+export PATH=${M2_HOME}/bin:${PATH}
+
+-- set environment vairables in slave to create build--
+go to slave and configure
+$M2_HOME
+/usr/local/maven
+$PATH
+/usr/local/maven/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/home/ec2-user/.local/bin:/home/ec2-user/bin
+---
+execute a small job stating in shell script 
+mvn -version
+mvn --version 
+----
+CI build will be incrimental build
+Nightly build will be full build to give QA
+--
+agent,stages,steps,node,
+==
+pipeline {
+    agent any
+    stages {
+        stage ('first stage') {
+            steps {echo "vikas is the tutor"}
+        }
+    }
+}
+---multi stage-- https://github.com/devvikasmanda/Jenkinsfile.git
+pipeline {
+    agent any
+    stages {
+        stage ('first stage') {
+            steps {echo "vikas is the tutor"
+                
+            }
+        }
+        stage ('stage2') {
+            steps {echo 'I love india'
+                
+            }
+        }
+    }
+}
+---nodes and customWorkspace--
+pipeline{
+    agent none
+    stages{
+		stage('stage1'){
+            agent{
+                node {
+                    label 'Demo'
+                    customWorkspace '/tmp'
+                }
+            }
+            steps{
+                 echo "vikas is writing second pipeline"
+            }
+        }
+        
+    }
+}
+---env--
+pipeline{
+    agent none
+    environment {
+        Name = 'Variable is global'
+    }
+    stages {
+        stage('first step to show env variable in local'){
+            agent {
+                label 'Slave01'
+            }
+            environment{
+                Name = 'Here variable is local'
+            }
+            steps {
+                sh "echo '$Name'"
+            }
+        }
+        stage('Let me try to show global variable'){
+            agent any
+            steps {
+                sh "echo '$Name'"
+            }
+            
+        }
+        stage('Third stage'){
+            agent any
+            steps{
+                echo "third stage"
+            }
+        }
+    }
+}
+5=========Parameters========
+pipeline{
+    agent any
+    parameters{
+        string(name:'vikas', defaultValue: 'Hyderbad', description: 'Vikas is')
+    }
+    stages{
+        stage ('sirst stage'){
+            steps {
+                echo "hello ${params.vikas}"
+            }
+        }
+    }
+    
+}
+6========buildsdelete/builds discarder==========
+pipeline{
+    agent Slave01
+    options {
+        buildDiscarder (logRotator(numToKeepStr: '5'))
+    }
+    
+    stages{
+        stage('stage1'){
+            steps {
+                echo 'hello check the build stages deleted or not'
+            }
+        }
+    }
+}
+7========retrycount=====
+pipeline{
+    agent { label 'Demo'}
+    options {
+        retry (3)
+    }
+    stages {
+        stage ('stage1') {
+            steps {
+                sh 'exit 1'
+            }
+        }
+    }
+}
+8=====timeout=====
+pipeline{
+    agent { label 'Demo'}
+    options {
+        timeout (time:5, unit:'SECONDS')
+    }
+    stages {
+        stage ('stage1') {
+            steps {
+                sh 'sleep 15'
+            }
+        }
+    }
+}
+9====timeout with timestamp====
+pipeline{
+    agent { label 'Demo'}
+    options {
+        timeout (time:5, unit:'SECONDS')
+        timestamps()
+    }
+    stages {
+        stage ('stage1') {
+            steps {
+                sh 'sleep 15'
+            }
+        }
+    }
+}
+===disable concurrent builds====
+pipeline{
+    agent { label 'Demo'}
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+    stages {
+        stage ('stage1') {
+            steps {
+                sh "echo 'Hi checking concurrent builds'"
+                sh "sleep 10"
+            }
+        }
+    }
+}
+====cronJob====
+pipeline{
+    agent any
+    triggers{
+        cron('* * * * *')
+    }
+    stages {
+        stage ('stage1'){
+            steps { echo 'Hi check the cron job'}
+        }
+    }
+}
+====calling other job========
+pipeline{
+    agent any
+    stages{
+        stage ('calling other job') {
+            steps {
+                build 'CIjob'
+            }
+            
+        }
+        stage ('executing other job'){
+            steps {
+                echo 'Checking above job is executed properly or not'
+            }
+        }
+    }
+}
+====calling pther job and dont wait====
+pipeline{
+    agent any
+    stages {
+        stage ('Checking job not to wait'){
+            steps {
+                build job: 'CIjob', wait: false
+            }
+            
+        }
+        stage ('second stage'){
+            steps {
+                echo 'Hi second stage'
+            }
+        }
+    }
+}
+======sending mail====
+pipeline{
+    agent any
+    stages {
+        stage ('sending mail'){
+            steps {
+                mail bcc: '', body: '''Hi Team,
+                The build was success. ''', cc: 'mvks1100@gmail.com', from: '', replyTo: '', subject: 'Happy to send mail ', to: 'devvikasmanda@gmail.com' }
+        }
+    }
+}
+=====Custom Directory=====
+pipeline{
+    agent any
+    stages{
+        stage('checking other directory'){
+            steps{
+                sh 'rm -rf vikas'
+                sh 'mkdir vikas'
+                sh 'pwd'
+                dir('/tmp/testing'){
+                    sh 'rm -rf *'
+                    sh 'touch file1'
+                    sh 'mkdir vikas'
+                    sh 'pwd'
+                }
+                sh 'pwd'
+            }
+        }
+    }
+}
+======when condition=====
+pipeline{
+    agent any
+    environment {DEPLOY_TO = 'QA'}
+    stages{
+        stage('Checking when condition'){
+            when {
+                environment name:'DEPLOY_TO', value:'QA'
+            }
+            steps{
+                echo 'Condition Check is passed with QA'
+            }
+        }
+        stage('Checking when condition2'){
+            when {
+                environment name:'DEPLY_TO', value:'Prod'
+            }
+            steps{
+                echo 'Contions check is passed with prod'
+            }
+        }
+    }
+}
+
+=======when condition string=====equals and not equals
+pipeline{
+    agent any
+    parameters{
+        string(name:'Env', defaultValue: 'k', description: 'Who is who?')
+    }
+    stages{
+        stage('checking string condition'){
+            when {not{
+                equals expected: 'vikas', actual: 'param.Env'
+            }}
+            steps {
+                echo '$param.Env'
+            }
+        }
+    }
+}
+==checking multiple conditions===
+pipeline{
+    agent any
+    parameters {
+        string(name: 'Name', defaultValue: 'Vikas', description: 'Give your name!')
+        booleanParam(name:'Check', defaultValue:'true',description: 'Check trur or false')
+    }
+    stages{
+        stage('checking multiple conditions'){
+            when{
+                allOf{
+                    equals expected:'Vikas', actual:params.Name
+                    expression {return params.Check}
+                }
+            }
+            steps{
+                echo 'when both the conditions are true'
+            }
+        }
+    }
+}
+=======parallel execution=========
+pipeline{
+    agent any
+    options { timestamps() }
+    stages{
+        stage('executing parallel stages'){
+            parallel {
+                stage('1'){steps{ sh 'sleep 10'}}
+                stage('2'){steps{sh 'sleep 5'}}
+                
+                
+            }
+        }
+        stage('After parallel stage'){
+            steps{echo 'Completed the parallel stages execution'}
+        
+        }
+    }
+}
+====post=====
+always : any status, fail or sucess
+changed : if previous build status changed
+fixed: Executes only if the completetion is sucessful and the previous run failed
+regression: Executes only if current execution fails, aborts or is unstable and the previous run was sucessful
+aborted: steps are executed only if the stage is aborted
+failure: only stage fails
+sucess: only stage is sucessful
+unstable: steps are executed pipeline or stage is unstable
+
